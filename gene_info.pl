@@ -36,11 +36,16 @@ sub main {
 
         $self->log("Filling database. This may take several minutes...\n");
 
+        my $wc = `wc -l $self->{fname}`;
+        my ($total) = $wc =~ /(^\d+)/;
+        $self->{prog_total} = $total;
+
         my $genes_query    = $self->{dbh}->prepare("INSERT INTO genes (entrez_id, symbol, name, tax_id) VALUES (?, ?, ?, ?)");
         my $xref_query     = $self->{dbh}->prepare("INSERT IGNORE INTO gene_xrefs (entrez_id, Xref_db, Xref_id) VALUES (?, ?, ?)");
         my $synonym_query  = $self->{dbh}->prepare("INSERT IGNORE INTO gene_synonyms (entrez_id, symbol) VALUES (?, ?)");
 
         while (my $line = <$IN>) {
+            $self->logProgress();
             next if $line =~ m/^#/;
             chomp $line;
             my @terms = split(/\t/,$line);
