@@ -51,6 +51,7 @@ sub main {
             my @terms = split(/\t/,$line);
 
             my $tax         = $terms[0];
+            next unless $tax == 9606;
             my $id          = $terms[1];
             my @synonyms    = $terms[4] eq "-" ? () : split(/\|/,$terms[4]);
             my @xrefs       = $terms[5] eq "-" ? () : split(/\|/,$terms[5]);
