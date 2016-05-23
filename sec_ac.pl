@@ -20,10 +20,20 @@ sub main {
     sub checkArgs {
         my $self = shift;
 
-        my $verbose = 0;
-        if(GetOptions('verbose' => \$verbose)  && @ARGV == 1) {
-            $self->{fname} = $ARGV[0];
-            $self->{verbose} = $verbose;
+        my ($verbose, $db, $user, $password, $species, $cnf_file);
+        if(GetOptions('verbose' => \$verbose,
+                'database=s' => \$db,
+                'username=s' => \$user,
+                'password=s' => \$password,
+                'species=i'  => \$species,
+                'cnf_file=s' => \$cnf_file)  && @ARGV == 1) {
+            $self->{fname}    = $ARGV[0];
+            $self->{verbose}  = $verbose;
+            $self->{dbname}   = $db;
+            $self->{user}     = $user;
+            $self->{password} = $password;
+            $self->{species}  = $species;
+            $self->{cnf_file} = $cnf_file;
             return 1;
         }
         return 0;
@@ -48,14 +58,14 @@ sub main {
                 WHERE Xref_db = 'UniProt'
                 AND Xref_id = ?
 STH
-        my $sth = $dbh->prepare($query);
+        my $sth = $self->{dbh}->prepare($query);
 
         while (my $line = <$IN>) {
             $self->logProgress();
             chomp $line;
 
             my @genes;
-            while($_ =~ m/([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})/g) {
+            while($line =~ m/([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})/g) {
                 push(@genes, $1);
             }
 

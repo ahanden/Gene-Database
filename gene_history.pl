@@ -21,10 +21,20 @@ sub main {
 
     sub checkArgs {
         my $self = shift;
-        my $verbose = 0;
-        if( GetOptions('verbose' => \$verbose) && @ARGV == 1 ) {
-            $self->{fname} = $ARGV[0];
-            $self->{verbose} = $verbose;
+        my ($verbose, $db, $user, $password, $species, $cnf_file);
+        if(GetOptions('verbose' => \$verbose,
+                'database=s' => \$db,
+                'username=s' => \$user,
+                'password=s' => \$password,
+                'species=i'  => \$species,
+                'cnf_file=s' => \$cnf_file)  && @ARGV == 1) {
+            $self->{fname}      = $ARGV[0];
+            $self->{verbose}    = $verbose;
+            $self->{dbname}     = $db;
+            $self->{user}       = $user;
+            $self->{password}   = $password;
+            $self->{species}    = $species ? $species : 9606;
+            $self->{cnf_file}   = $cnf_file;
             return 1;
         }
         return 0;
@@ -43,7 +53,7 @@ sub main {
         while (my $line = <IN>) {
             $self->logProgress();
             next if $line =~ m/^#/; # discard comments
-            next if $line !~ m/^9606\t/; #ignore non-human genes
+            next if $line !~ m/^$self->{species}\t/; #ignore non-human genes
 
             chomp $line;
             my @terms = split(/\t/,$line);

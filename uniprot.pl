@@ -20,11 +20,21 @@ sub main {
     sub checkArgs {
         my $self = shift;
 
-        my $verbose = 0;
-        if(GetOptions('verbose' => \$verbose) && @ARGV == 2) {
-            $self->{verbose} = $verbose;
-            $self->{g2a} = $ARGV[0];
-            $self->{gruc} = $ARGV[1];
+        my ($verbose, $db, $user, $password, $species, $cnf_file);
+        if(GetOptions('verbose' => \$verbose,
+                'database=s' => \$db,
+                'username=s' => \$user,
+                'password=s' => \$password,
+                'species=i'  => \$species,
+                'cnf_file=s' => \$cnf_file)  && @ARGV == 2) {
+            $self->{g2a}       = $ARGV[0];
+            $self->{gruc}      = $ARGV[1];
+            $self->{verbose}   = $verbose;
+            $self->{dbname}    = $db;
+            $self->{user}      = $user;
+            $self->{password}  = $password;
+            $self->{species}   = $species ? $species : 9606;
+            $self->{cnf_file}  = $cnf_file;
             return 1;
         }
         return 0;
@@ -39,7 +49,7 @@ sub main {
         while(<IN>) {
             my $line = $_;
             next if $line =~ m/^#/; # Skip comments
-            next if $line !~ m/^9606\t/; # Skip non-humans
+            next if $line !~ m/^$self->{species}\t/; # Skip non-humans
 
             chomp $line;
             

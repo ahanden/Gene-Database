@@ -28,7 +28,7 @@ sub new {
     }
 
     if(!$self->{dbh}) {
-        $self->{dbh} = Update::connectDB();
+        $self->connectDB();
     }
 
     return $self;
@@ -74,29 +74,44 @@ sub usage {
 sub connectDB {
     my $self = shift;
 
-    ReadMode 1;
-    print "dbname: ";
-    my $db = <STDIN>;
-    chomp $db;
-    ReadMode 1;
-    print "username: ";
-    my $user = <STDIN>;
-    chomp $user;
-    ReadMode 2;
-    print "password: ";
-    my $password = <STDIN>;
-    print "\n";
-    chomp $password;
-    ReadMode 1;
-
-    my $dbh = DBI->connect("dbi:mysql:$db:localhost",$user,$password,
-        {RaiseError => 1, AutoCommit => 0}) or die;
-
-    if($self->{debug}) {
-        $dbh->trace(2);
+    if($self->{cnf_file}) {
+        use Cwd 'abs_path';
+        my $path = abs_path($self->{cnf_file});
+        my $dsn = "DBI:mysql:;mysql_read_default_file=$path";
+        $self->{dbh} = DBI->connect($dsn, undef, undef, {RaiseError => 1, AutoCommit => 0}) or die;
     }
 
-    return $dbh;
+    else {
+        if(!$self->{dbname}) {
+            ReadMode 1;
+            print "dbname: ";
+            my $db = <STDIN>;
+            chomp $db;
+            $self->{dbname} = $db;
+        }
+        if(!$self->{user}) {
+            ReadMode 1;
+            print "username: ";
+            my $user = <STDIN>;
+            chomp $user;
+            $self->{user} = $user;
+        }
+        if(!$self->{password}) {
+            ReadMode 2;
+            print "password: ";
+            my $password = <STDIN>;
+            print "\n";
+            chomp $password;
+            $self->{password} = $password;
+            ReadMode 1;
+        }
+        
+        $self->{dbh} = DBI->connect("dbi:mysql:$self->{dbname}:localhost",$self->{user},$self->{password}, {RaiseError => 1, AutoCommit => 0}) or die;
+    }
+
+    if($self->{debug}) {
+        $self->{dbh}->trace(2);
+    }
 }
 
 sub logProgress {

@@ -20,10 +20,20 @@ sub main {
     sub checkArgs {
         my $self = shift;
 
-        my $verbose = 0;
-        if(GetOptions('verbose' => \$verbose)  && @ARGV == 1) {
-            $self->{fname} = $ARGV[0];
-            $self->{verbose} = $verbose;
+        my ($verbose, $db, $user, $password, $species, $cnf_file);
+        if(GetOptions('verbose' => \$verbose,
+                'database=s' => \$db,
+                'username=s' => \$user,
+                'password=s' => \$password,
+                'species=i'  => \$species,
+                'cnf_file=s' => \$cnf_file)  && @ARGV == 1) {
+            $self->{fname}      = $ARGV[0];
+            $self->{verbose}    = $verbose ? $verbose : 0;
+            $self->{dbname}     = $db;
+            $self->{user}       = $user;
+            $self->{password}   = $password;
+            $self->{species}    = $species ? $species : 9606;
+            $self->{cnf_file}   = $cnf_file;
             return 1;
         }
         return 0;
@@ -51,7 +61,7 @@ sub main {
             my @terms = split(/\t/,$line);
 
             my $tax         = $terms[0];
-            next unless $tax == 9606;
+            next unless $tax == $self->{species};
             my $id          = $terms[1];
             my @synonyms    = $terms[4] eq "-" ? () : split(/\|/,$terms[4]);
             my @xrefs       = $terms[5] eq "-" ? () : split(/\|/,$terms[5]);
