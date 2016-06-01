@@ -32,6 +32,7 @@ $(DATA_DIR)/gene_history :
 
 # Gene To Accession
 $(DATA_DIR)/gene_xrefs.sql : structure $(DATA_DIR)/genes.sql $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab $(DATA_DIR)/sec_ac.txt
+	perl gene2accession -s $(SPECIES) -c auth.cnf $(DATA_DIR)/gene2accession
 	perl uniprot.pl -s $(SPECIES) -c auth.cnf $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab
 	perl sec_ac.pl -c auth.cnf $(DATA_DIR)/sec_ac.txt
 	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
