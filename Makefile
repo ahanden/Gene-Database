@@ -35,9 +35,9 @@ $(DATA_DIR)/gene_history :
 
 # Gene To Accession
 $(DATA_DIR)/gene_xrefs.sql : structure $(DATA_DIR)/genes.sql $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab $(DATA_DIR)/sec_ac.txt
-	perl gene2accession.pl -s $(SPECIES) -c auth.cnf $(DATA_DIR)/gene2accession
-	perl uniprot.pl -s $(SPECIES) -c auth.cnf $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab
-	perl sec_ac.pl -c auth.cnf $(DATA_DIR)/sec_ac.txt
+	perl gene2accession.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene2accession
+	perl uniprot.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab
+	perl sec_ac.pl -c auth.cnf -v $(DATA_DIR)/sec_ac.txt
 	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
 	mysqldump --defaults-file=auth.cnf $${DB} gene_xrefs> $(DATA_DIR)/gene_xrefs.sql
 $(DATA_DIR)/gene2accession :
@@ -50,14 +50,18 @@ $(DATA_DIR)/sec_ac.txt :
 	wget ftp://ftp.uniprot.org/pub/databases/uniprot/knowledgebase/docs/sec_ac.txt --output-document=$(DATA_DIR)/sec_ac.txt
 
 # Gene Annotations
-$(DATA_DIR)/annotations.sql : structure $(DATA_DIR)/UniProt2Reactome_All_Levels.txt $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt
+$(DATA_DIR)/annotations.sql : structure $(DATA_DIR)/UniProt2Reactome_All_Levels.txt $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/gene2go $(DATA_DIR)/variant_summary.txt
 	# REACTOME
 	perl reactome.pl -c auth.cnf -s $(SPECIES) -v $(DATA_DIR)/UniProt2Reactome_All_Levels.txt
+	# KEGG and BioCarta (by way of the Broad Institute)
 	perl broad.pl -c auth.cnf -v $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt
 	perl broad.pl -c auth.cnf -v $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt
+	# Gene Ontology
+	perl gene2go.pl -c auth.cnf -s $(SPECIES) -v $(DATA_DIR)/gene2go
+	# ClinVar
+	perl variant_summary.pl -c auth.cnf -v $(DATA_DIR)/variant_summary.txt
 	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
 	mysqldump --defaults-file=auth.cnf $${DB} annotations> $(DATA_DIR)/annotations.sql
-	# KEGG and BioCarta (by way of the Broad Institute)
 # REACTOME
 $(DATA_DIR)/UniProt2Reactome_All_Levels.txt :
 	wget http://www.reactome.org/download/current/UniProt2Reactome_All_Levels.txt --output-document=$(DATA_DIR)/UniProt2Reactome_All_Levels.txt
@@ -77,6 +81,14 @@ $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(B
 		--load-cookies="$(DATA_DIR)/cookies.txt" \
 		--output-document="$(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt"
 	rm $(DATA_DIR)/cookies.txt
+# Gene Ontology
+$(DATA_DIR)/gene2go :
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2go.gz --output-document=$(DATA_DIR)/gene2go.gz
+	gunzip $(DATA_DIR)/gene2go.gz
+# ClinVar
+$(DATA_DIR)/variant_summary.txt :
+	wget ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz --output-document=$(DATA_DIR)/variant_summary.txt.gz
+	gunzip $(DATA_DIR)/variant_summary.txt.gz
 
 # Remove the data files
 clean :
