@@ -50,7 +50,7 @@ sub main {
         my ($total) = $wc =~ /(^\d+)/;
         $self->{prog_total} = $total;
 
-        my $genes_query    = $self->{dbh}->prepare("INSERT INTO genes (entrez_id, symbol, name, tax_id) VALUES (?, ?, ?, ?)");
+        my $genes_query    = $self->{dbh}->prepare("INSERT IGNORE INTO genes (entrez_id, symbol, name, tax_id) VALUES (?, ?, ?, ?)");
         my $xref_query     = $self->{dbh}->prepare("INSERT IGNORE INTO gene_xrefs (entrez_id, Xref_db, Xref_id) VALUES (?, ?, ?)");
         my $synonym_query  = $self->{dbh}->prepare("INSERT IGNORE INTO gene_synonyms (entrez_id, symbol) VALUES (?, ?)");
 

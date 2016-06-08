@@ -18,7 +18,7 @@ CREATE TABLE `gene_xrefs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
 DROP TABLE IF EXISTS `gene_synonyms`;
-	CREATE TABLE `gene_synonyms` (
+CREATE TABLE `gene_synonyms` (
 	`entrez_id` int(10) unsigned NOT NULL,
 	`symbol` varchar(30) NOT NULL,
 	PRIMARY KEY (`entrez_id`,`symbol`),
@@ -26,11 +26,19 @@ DROP TABLE IF EXISTS `gene_synonyms`;
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
 DROP TABLE IF EXISTS `genes`;
-	CREATE TABLE `genes` (
+CREATE TABLE `genes` (
 	`entrez_id` int(10) unsigned NOT NULL,
 	`symbol` varchar(30) DEFAULT NULL,
 	`name` varchar(255) DEFAULT NULL,
 	`tax_id` int(10) unsigned NOT NULL,
 	PRIMARY KEY (`entrez_id`),
 	KEY `symbol` (`symbol`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+DROP TABLE IF EXISTS `annotations`;
+CREATE TABLE `annotations` (
+	`entrez_id` int(10) unsigned NOT NULL,
+	`annotation` varchar(255) NOT NULL,
+	`db` varchar(255) NOT NULL,
+	PRIMARY KEY (`entrez_id`, `annotation`, `db`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
