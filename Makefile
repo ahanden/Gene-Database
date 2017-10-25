@@ -44,22 +44,27 @@ $(DATA_DIR)/gene_info.$(SPECIES): $(DATA_DIR)/gene_info
 	grep -P "^(#|$(SPECIES)\t)" $< > $@
 
 # Insert statement for the entire genes table
-sql/genes.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+$(DATA_DIR)/genes.sql: $(DATA_DIR)/gene_info.$(SPECIES)
 	echo "INSERT INTO genes (entrez_id, symbol, name, species) VALUES" > $@
-	grep -v "^#" $< | \
-		awk -F "\t" -v OFS="," '{print "\t(" $$2, "\""$$11"\"", "\""$$12"\"", $$1 "),"}' | \
-			sed -e 's/"-"/NULL/g' \
-	    		    -e '$$ s/,$$/;/' >> $@
+	awk -F "\t" -v OFS="," '/^[^#]/{\
+		print "\t(" $$2, "\""$$11"\"", "\""$$12"\"", $$1 ")," \
+	}' | \
+	sed -e 's/"-"/NULL/g' \
+	    -e '$$ s/,$$/;/' >> $@
 
 # Insert statement for the entire gene_synonyms table
-sql/gene_synonyms.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+$(DATA_DIR)/gene_synonyms.sql: $(DATA_DIR)/gene_info.$(SPECIES)
 	echo "INSERT INTO gene_synonyms (entrez_id, symbol) VALUES" > $@
-	grep -v "^#" $< | \
-		awk -F "\t" -v OFS="," '{split($$5, s, "|"); for(i in s) { print "\t(" $$2, "\""s[i]"\")," }}' | \
-		sed -e '/"-"/d' -e '$$ s/,$$/;/' >> $@
+	awk -F "\t" -v OFS="," '/^[^#]/{ \
+		split($$5, s, "|"); \
+		for(i in s) { \
+			print "\t(" $$2, "\""s[i]"\")," 
+		}
+	}' | \
+	sed -e '/"-"/d' -e '$$ s/,$$/;/' >> $@
 
 # Insert statement for the entire discontinued_genes table
-sql/discontinued_genes.sql: $(DATA_DIR)/gene_history
+$(DATA_DIR)/discontinued_genes.sql: $(DATA_DIR)/gene_history
 	echo "INSERT INTO discontinued_genes (entrez_id, discontinued_symbol, discontinued_id) VALUES" > $@ 
 	awk -F "\t" -v OFS="," '{ \
 		if($$1 == "$(SPECIES)") { \
@@ -71,19 +76,18 @@ sql/discontinued_genes.sql: $(DATA_DIR)/gene_history
 	    -e '$$ s/,$$/;/' >> $@
 
 # Insert statement for gene_info's portion of the gene_Xrefs table
-sql/gene_Xrefs.gene_info.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+$(DATA_DIR)/gene_Xrefs.gene_info.sql: $(DATA_DIR)/gene_info.$(SPECIES)
 	echo "INSERT INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES" > $@
-	grep -v "^#" $< | \
-		awk -F "\t" -v OFS="," '{ \
-			split($$6, x, "|"); \
-			for(i in x) { \
-				print "\t(" $$1, "\""x[i]"\")," \
-			} \
-		}' | \
-		sed -e '/"-"/d' \
-		    -e 's/"\([^:]\+\):\([^"]\+\)"/"\1","\2"/' >> $@
+	awk -F "\t" -v OFS="," '/^[^#]/{ \
+		split($$6, x, "|"); \
+		for(i in x) { \
+			print "\t(" $$1, "\""x[i]"\")," \
+		} \
+	}' | \
+	sed -e '/"-"/d' \
+	    -e 's/"\([^:]\+\):\([^"]\+\)"/"\1","\2"/' >> $@
 # Insert statement for gene2accession's portion of the gene_Xrefs table
-sql/gene_Xrefs.gene2accession.sql: $(DATA_DIR)/gene2accession
+$(DATA_DIR)/gene_Xrefs.gene2accession.sql: $(DATA_DIR)/gene2accession
 	echo "INSERT INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES" > $@
 	awk -F "\t" '{ \
 		if($$1 == "$(SPECIES)") { \
@@ -94,10 +98,32 @@ sql/gene_Xrefs.gene2accession.sql: $(DATA_DIR)/gene2accession
 				print "\t(" $$2 ",\"" $$7 "\",\"GenBank\")," \
 			} \
 		} \
-	}' $< >> $@
+	}' $< |
+	sed '$$ s/,$$/;/' >> $@
+# Insert statement for gene_refseq_uniprotkb_collab portion of the gene_Xrefs table
+$(DATA_DIR)/gene_Xrefs.gene_refseq_uniprotkb_collab.sql: \
+		$(DATA_DIR)/gene_refseq_uniprotkb_collab
+	echo "INSERT INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES" > $@
+	sed -nr -e '/^[^#]/ s/^(\S+)\t(\S+)/\t((SELECT entrez_id \
+	           FROM gene_Xrefs AS x \
+		   WHERE Xref_id = "\1"),\
+		   "\2", \
+		   "UniProt"),/p' \
+		-e '$$ s/,$$/;/p' $< >> $@
+
+# Insert statement for sec_ac portion of the gene_Xrefs table
+$(DATA_DIR)/gene_Xrefs.sec_ac.sql: $(DATA_DIR)/sec_ac.txt
+	echo "INSERT INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES" > $@
+	#awk -F " " '/^[^:_]+$/ {if(NF == 2){print NF, $0}}' data/sec_ac.txt | less
+	sed -nr -e '/^[^:_]+$$/ s/^(\S+)\s+(\S+)$$/\t((SELECT entrez_id \
+		    FROM gene_Xrefs as x \
+		    WHERE Xref_id = "\2"), \
+		    "\1", \
+		    "UniProt"),/p' \
+		-e '$$ s/,$$/;/p' $< >> $@
 
 # Insert statement for Gene Ontology annotations
-sql/annotations.go.sql: $(DATA_DIR)/gene2go
+$(DATA_DIR)/annotations.go.sql: $(DATA_DIR)/gene2go
 	echo "INSERT IGNORE INTO annotations (entrez_id, annotations, db) VALUES" > $@
 	awk -F "\t" '{ \
 		if($$1 == "$(SPECIES)") { \
