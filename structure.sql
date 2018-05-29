@@ -31,6 +31,7 @@ CREATE TABLE `genes` (
 	`symbol` varchar(30) DEFAULT NULL,
 	`name` varchar(255) DEFAULT NULL,
 	`tax_id` int(10) UNSIGNED NOT NULL,
+	`type` varchar(30) DEFAULT NULL,
 	PRIMARY KEY (`entrez_id`),
 	KEY `symbol` (`symbol`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
