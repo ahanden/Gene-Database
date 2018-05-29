@@ -11,90 +11,252 @@ DATE ?= `date +%Y_%m_%d`
 # Directory to store data in
 DATA_DIR ?= data
 
+# Directory to store SQL files
+SQL_DIR ?= sql
+
 # Species code
 SPECIES=9606
 
 # Broad Institute release number
 BI_VERSION=5.1
 
+# Number of rows to insert at a time
+CHUNK_SIZE=1000
+
 ###############
 #             #
 # Main target #
 #             #
 ###############
-all : $(DATA_DIR)/genes.sql \
-      $(DATA_DIR)/gene_synonyms.sql \
-      $(DATA_DIR)/discontinued_genes.sql \
-      $(DATA_DIR)/gene_xrefs.sql \
-      $(DATA_DIR)/annotations.sql \
-      $(DATA_DIR)/atlas.sql
-	tar -cvf backup.$(DATE).tar $(DATA_DIR)/
-	7z a backup.$(DATE).tar.7z backup.$(DATE).tar
-	rm backup.$(DATE).tar
-	rm -f auth.cnf
 
-#####################
-#                   #
-# Primary NCBI data #
-#                   #
-#####################
+all: structure \
+     $(SQL_DIR)/genes.sql \
+     $(SQL_DIR)/gene_synonyms.sql \
+     $(SQL_DIR)/discontinued_genes.sql \
+     $(SQL_DIR)/gene_Xrefs.gene_info.sql \
+     $(SQL_DIR)/gene_Xrefs.gene2accession.sql \
+     $(SQL_DIR)/gene_Xrefs.gene_refseq_uniprotkb_collab.sql \
+     $(SQL_DIR)/gene_Xrefs.sec_ac.sql \
+     $(SQL_DIR)/annotations.go.sql \
+     $(SQL_DIR)/annotations.reactome.sql \
+     $(SQL_DIR)/annotations.kegg.sql \
+     $(SQL_DIR)/annotations.biocarta.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/genes.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/gene_synonyms.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/discontinued_genes.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/gene_Xrefs.gene_info.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/gene_Xrefs.gene2accession.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/gene_Xrefs.gene_refseq_uniprotkb_collab.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/gene_Xrefs.sec_ac.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/annotations.go.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/annotations.reactome.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/annotations.kegg.sql
+	mysql --defaults-file=auth.cnf < $(SQL_DIR)/annotations.biocarta.sql
 
-# Gene Info
-$(DATA_DIR)/genes.sql $(DATA_DIR)/gene_synonyms.sql : structure $(DATA_DIR)/gene_info
-	perl gene_info.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene_info
-	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
-	mysqldump --defaults-file=auth.cnf $${DB} genes > $(DATA_DIR)/genes.sql; \
-	mysqldump --defaults-file=auth.cnf $${DB} gene_synonyms > $(DATA_DIR)/gene_synonyms.sql;
+
+##################
+#                #
+# Pre-Processing #
+#                #
+##################
+
+# The gene_info file has to be read several times through. Only selecting genes
+# of the specified species saves a lot of time.
+$(DATA_DIR)/gene_info.$(SPECIES): $(DATA_DIR)/gene_info
+	grep -P "^(#|$(SPECIES)\t)" $< > $@
+
+##########################
+#                        #
+# Generate table content #
+#                        #
+##########################
+
+# Insert statement for the entire genes table
+$(SQL_DIR)/genes.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+	awk -F "\t" 'BEGIN{ \
+		values = "\t(%s, \"%s\", \"%s\", %s, \"%s\"),\n"; \
+	} /^[^#]/ { \
+		printf values, $$2, $$11, $$12, $$1, $$10; \
+	}' $< | \
+	sed -e 's/"-"/NULL/g' \
+	    -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT INTO genes (entrez_id, symbol, name, tax_id, `type`) VALUES' \
+	    > $@
+
+# Insert statement for the entire gene_synonyms table
+$(SQL_DIR)/gene_synonyms.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+	awk -F "\t" -v OFS="," '/^[^#]/{ \
+		if($$3 != $$11) { \
+			print "\t(" $$2, "\""$$3"\"),"; \
+		} \
+		split($$5, s, "|"); \
+		for(i in s) { \
+			print "\t(" $$2, "\""s[i]"\"),"; \
+		} \
+	}' $< | \
+	sed -e '/"-"/d' | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_synonyms (entrez_id, symbol) VALUES' \
+	    > $@
+
+
+# Insert statement for the entire discontinued_genes table
+$(SQL_DIR)/discontinued_genes.sql: $(DATA_DIR)/gene_history
+	awk -F "\t" -v OFS="," '{ \
+		if($$1 == "$(SPECIES)") { \
+			print "\t("$$2, "\""$$4"\"", "\""$$3"\")," \
+		} \
+	}' $< | \
+	sed -e '/^\t(-/d' | \
+	sed -e 's/"-"/NULL/g' \
+	    -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT INTO discontinued_genes (entrez_id, discontinued_symbol, discontinued_id) VALUES' \
+	    > $@ 
+
+# Insert statement for gene_info's portion of the gene_Xrefs table
+$(SQL_DIR)/gene_Xrefs.gene_info.sql: $(DATA_DIR)/gene_info.$(SPECIES)
+	awk -F "\t" -v OFS="," '/^[^#]/{ \
+		split($$6, x, "|"); \
+		for(i in x) { \
+			print "\t(" $$1, "\""x[i]"\")," \
+		} \
+	}' $< | \
+	sed '/"-"/d' | \
+	sed -e 's/"\([^:]\+\):\([^"]\+\)"/"\1","\2"/' \
+	    -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
+	    > $@
+
+# Insert statement for gene2accession's portion of the gene_Xrefs table
+$(SQL_DIR)/gene_Xrefs.gene2accession.sql: $(DATA_DIR)/gene2accession
+	awk -F "\t" 'BEGIN{\
+		values = "\t(%s, \"%s\", \"%s\"),\n"; \
+	} /^$(SPECIES)\t/ { \
+		printf values, $$2, $$6, "RefSeq"; \
+		printf values, $$2, $$7, "GenBank"; \
+	}' $< | \
+	sed '/"-"/d' | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
+	    > $@
+
+# Insert statement for gene_refseq_uniprotkb_collab portion of the gene_Xrefs
+# table
+$(SQL_DIR)/gene_Xrefs.gene_refseq_uniprotkb_collab.sql: \
+		$(DATA_DIR)/gene_refseq_uniprotkb_collab
+	awk -F "\t" 'BEGIN{ \
+		values = "\t((SELECT xrefeid(\"%s\", \"RefSeq\")), \"%s\", \"UniProt\"),\n"; \
+	} /^[^#]/ { \
+		printf values, $$1, $$2; \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
+	    > $@
+
+# Insert statement for sec_ac portion of the gene_Xrefs table
+$(SQL_DIR)/gene_Xrefs.sec_ac.sql: $(DATA_DIR)/sec_ac.txt
+	awk 'BEGIN{ \
+		values = "\t((SELECT xrefeid(\"%s\", \"UniProt\")), \"%s\", \"UniProt\"),\n"; \
+	} /^[^:_]+$$/ { \
+		if(NF == 2) \
+			printf values, $$2, $$1; \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
+	    > $@
+
+# Insert statement for Gene Ontology annotations
+$(SQL_DIR)/annotations.go.sql: $(DATA_DIR)/gene2go
+	awk -F "\t" '/^9606\t/ { \
+		print "\t(" $$2 ",\"" $$6 "\",\"GO\")," \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO annotations (entrez_id, annotation, db) VALUES' \
+	    > $@
+
+# Insert statement for REACTOME annotations
+$(SQL_DIR)/annotations.reactome.sql: $(DATA_DIR)/UniProt2Reactome_All_Levels.txt
+	awk -F "\t" '{ \
+		print "\t((SELECT xrefeid(\""$$1"\", \"UniProt\")), \""$$4"\", \"REACTOME\"),"; \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO annotations (entrez_id, annotation, db) VALUES' \
+	    > $@
+
+# Insert statement for KEGG annotations (from the Broad Institute)
+$(SQL_DIR)/annotations.kegg.sql: $(DATA_DIR)/c2.cp.kegg.v5.1.entrez.gmt
+	awk -F "\t" '{ \
+		for(i = 3; i <= NF; i++) \
+			print "\t((SELECT valideid("$$i")), \""substr($$1,6)"\", \"KEGG\"),"; \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO annotations (entrez_id, annotation, db) VALUES' \
+	    > $@
+
+# Insert statement for BioCarta annotations (from the Broad Institute)
+$(SQL_DIR)/annotations.biocarta.sql: $(DATA_DIR)/c2.cp.biocarta.v5.1.entrez.gmt
+	awk -F "\t" '{ \
+		for(i = 3; i <= NF; i++) \
+			print "\t((SELECT valideid("$$i")), \""substr($$1,10)"\", \"BIOCARTA\"),"; \
+	}' $< | \
+	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
+	    -e '$$ s/,$$/;/' \
+	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO annotations (entrez_id, annotation, db) VALUES' \
+	    > $@
+
+###############################
+#                             #
+# External files for download #
+#                             #
+###############################
+
+# NCBI Data
 $(DATA_DIR)/gene_info :
-	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz --output-document=$(DATA_DIR)/gene_info.gz
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz \
+		--output-document=$(DATA_DIR)/gene_info.gz
 	gunzip $(DATA_DIR)/gene_info.gz
-
-# Gene History
-$(DATA_DIR)/discontinued_genes.sql : structure $(DATA_DIR)/gene_history
-	perl gene_history.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene_history
-	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
-	mysqldump --defaults-file=auth.cnf $${DB} discontinued_genes> $(DATA_DIR)/discontinued_genes.sql
 $(DATA_DIR)/gene_history :
-	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_history.gz --output-document=$(DATA_DIR)/gene_history.gz
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_history.gz \
+		--output-document=$(DATA_DIR)/gene_history.gz
 	gunzip $(DATA_DIR)/gene_history.gz
-
-# Gene To Accession
-$(DATA_DIR)/gene_xrefs.sql : structure $(DATA_DIR)/genes.sql $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab $(DATA_DIR)/sec_ac.txt
-	perl gene2accession.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene2accession
-	perl uniprot.pl -s $(SPECIES) -c auth.cnf -v $(DATA_DIR)/gene2accession $(DATA_DIR)/gene_refseq_uniprotkb_collab
-	perl sec_ac.pl -c auth.cnf -v $(DATA_DIR)/sec_ac.txt
-	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
-	mysqldump --defaults-file=auth.cnf $${DB} gene_xrefs> $(DATA_DIR)/gene_xrefs.sql
 $(DATA_DIR)/gene2accession :
-	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2accession.gz --output-document=$(DATA_DIR)/gene2accession.gz
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2accession.gz \
+		--output-document=$(DATA_DIR)/gene2accession.gz
 	gunzip $(DATA_DIR)/gene2accession.gz
+
+# UniProt Identifiers
 $(DATA_DIR)/gene_refseq_uniprotkb_collab :
-	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_refseq_uniprotkb_collab.gz --output-document=$(DATA_DIR)/gene_refseq_uniprotkb_collab.gz 
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_refseq_uniprotkb_collab.gz \
+		--output-document=$(DATA_DIR)/gene_refseq_uniprotkb_collab.gz 
 	gunzip $(DATA_DIR)/gene_refseq_uniprotkb_collab.gz
 $(DATA_DIR)/sec_ac.txt :
-	wget ftp://ftp.uniprot.org/pub/databases/uniprot/knowledgebase/docs/sec_ac.txt --output-document=$(DATA_DIR)/sec_ac.txt
+	wget ftp://ftp.uniprot.org/pub/databases/uniprot/knowledgebase/docs/sec_ac.txt \
+		--output-document=$(DATA_DIR)/sec_ac.txt
 
-####################
-#                  #
-# Gene Annotations #
-#                  #
-####################
-
-$(DATA_DIR)/annotations.sql : structure $(DATA_DIR)/UniProt2Reactome_All_Levels.txt $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/gene2go $(DATA_DIR)/variant_summary.txt
-	# REACTOME
-	perl reactome.pl -c auth.cnf -s $(SPECIES) -v $(DATA_DIR)/UniProt2Reactome_All_Levels.txt
-	# KEGG and BioCarta (by way of the Broad Institute)
-	perl broad.pl -c auth.cnf -v $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt
-	perl broad.pl -c auth.cnf -v $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt
-	# Gene Ontology
-	perl gene2go.pl -c auth.cnf -s $(SPECIES) -v $(DATA_DIR)/gene2go
-	# ClinVar
-	perl variant_summary.pl -c auth.cnf -v $(DATA_DIR)/variant_summary.txt
-	DB=$$(grep -P "^database=" auth.cnf | sed 's/^database=//'); \
-	mysqldump --defaults-file=auth.cnf $${DB} annotations> $(DATA_DIR)/annotations.sql
 # REACTOME
 $(DATA_DIR)/UniProt2Reactome_All_Levels.txt :
 	wget http://www.reactome.org/download/current/UniProt2Reactome_All_Levels.txt --output-document=$(DATA_DIR)/UniProt2Reactome_All_Levels.txt
+
+# Gene Ontology
+$(DATA_DIR)/gene2go :
+	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2go.gz --output-document=$(DATA_DIR)/gene2go.gz
+	gunzip $(DATA_DIR)/gene2go.gz
+
+# Human gene atlas
+$(DATA_DIR)/normal_tissue.tsv:
+	wget https://www.proteinatlas.org/download/normal_tissue.tsv.zip --output-document=$(DATA_DIR)/normal_tissue.tsv.zip
+	unzip $(DATA_DIR)/normal_tissue.tsv.zip -d $(DATA_DIR)
+
 # Broad Institute (KEGG and BioCarta)
 $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt :
 	@echo "Downloading Broad Institute GSEA version $(BI_VERSION)"
@@ -111,28 +273,6 @@ $(DATA_DIR)/c2.cp.kegg.v$(BI_VERSION).entrez.gmt $(DATA_DIR)/c2.cp.biocarta.v$(B
 		--load-cookies="$(DATA_DIR)/cookies.txt" \
 		--output-document="$(DATA_DIR)/c2.cp.biocarta.v$(BI_VERSION).entrez.gmt"
 	rm $(DATA_DIR)/cookies.txt
-# Gene Ontology
-$(DATA_DIR)/gene2go :
-	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene2go.gz --output-document=$(DATA_DIR)/gene2go.gz
-	gunzip $(DATA_DIR)/gene2go.gz
-# ClinVar
-$(DATA_DIR)/variant_summary.txt :
-	wget ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz --output-document=$(DATA_DIR)/variant_summary.txt.gz
-	gunzip $(DATA_DIR)/variant_summary.txt.gz
-
-###################
-#                 #
-# Gene atlas data #
-#                 #
-###################
-
-$(DATA_DIR)/atlas.sql: $(DATA_DIR)/normal_tissue.tsv
-	perl atlas.pl -c auth.cnf -v $(DATA_DIR)/normal_tissue.tsv
-	mysqldump --defaults-file=auth.cnf $${DB} atlas> $(DATA_DIR)/atlas.sql
-
-$(DATA_DIR)/normal_tissue.tsv:
-	wget https://www.proteinatlas.org/download/normal_tissue.tsv.zip --output-document=$(DATA_DIR)/normal_tissue.tsv.zip
-	unzip $(DATA_DIR)/normal_tissue.tsv.zip -d $(DATA_DIR)
 
 #########################
 #                       #
@@ -148,8 +288,10 @@ clean :
 # Apply the database structure #
 #                              #
 ################################
+
 structure : auth.cnf
 	mysql --defaults-file=auth.cnf < structure.sql
+	mysql --defaults-file=auth.cnf < functions.sql
 
 ########################
 #                      #
