@@ -143,17 +143,22 @@ $(SQL_DIR)/gene_Xrefs.gene2accession.sql: $(DATA_DIR)/gene2accession
 	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
 	    -e '$$ s/,$$/;/' \
 	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
+	    -e 's/"\(.*\)\..*", "RefSeq"/"\1", "RefSeq"/' \
 	    > $@
 
 # Insert statement for gene_refseq_uniprotkb_collab portion of the gene_Xrefs
 # table
 $(SQL_DIR)/gene_Xrefs.gene_refseq_uniprotkb_collab.sql: \
+		$(SQL_DIR)/gene_Xrefs.gene2accession.sql \
 		$(DATA_DIR)/gene_refseq_uniprotkb_collab
+	sed -n 's/.*"\(.*\)", "RefSeq")./\1/p' $(SQL_DIR)/gene_Xrefs.gene2accession.sql | \
+	sort -u | \
+	join - $(DATA_DIR)/gene_refseq_uniprotkb_collab | \
 	awk -F "\t" 'BEGIN{ \
 		values = "\t((SELECT xrefeid(\"%s\", \"RefSeq\")), \"%s\", \"UniProt\"),\n"; \
 	} /^[^#]/ { \
 		printf values, $$1, $$2; \
-	}' $< | \
+	}' | \
 	sed -e '0~$(CHUNK_SIZE) s/,$$/;/' \
 	    -e '$$ s/,$$/;/' \
 	    -e '1~$(CHUNK_SIZE) iINSERT IGNORE INTO gene_Xrefs (entrez_id, Xref_id, Xref_db) VALUES' \
@@ -239,6 +244,8 @@ $(DATA_DIR)/gene_refseq_uniprotkb_collab :
 	wget ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_refseq_uniprotkb_collab.gz \
 		--output-document=$(DATA_DIR)/gene_refseq_uniprotkb_collab.gz 
 	gunzip $(DATA_DIR)/gene_refseq_uniprotkb_collab.gz
+	sort -u $(DATA_DIR)/gene_refseq_uniprotkb_collab \
+	     -o $(DATA_DIR)/gene_refseq_uniprotkb_collab
 $(DATA_DIR)/sec_ac.txt :
 	wget ftp://ftp.uniprot.org/pub/databases/uniprot/knowledgebase/docs/sec_ac.txt \
 		--output-document=$(DATA_DIR)/sec_ac.txt
@@ -300,6 +307,7 @@ structure : auth.cnf
 ########################
 auth.cnf :
 	@echo "[client]" > auth.cnf
+	@read -p "Host: " host; echo "host=$$host" >> auth.cnf
 	@read -p "Database: " db; echo "database=$$db" >> auth.cnf
 	@read -p "Username: " user; echo "user=$$user" >> auth.cnf
 	@read -s -p "Password: " passwd; echo "password=$$passwd" >> auth.cnf
